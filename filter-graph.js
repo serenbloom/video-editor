@@ -34,6 +34,41 @@
   }
 
   /**
+   * Builds x/y/alpha expressions for an animated caption line entrance
+   * (and a shared fade-out near the end). Kept purely numeric/expression
+   * based since ffmpeg evaluates these per-frame with the `t` variable.
+   */
+  function animationExprs(anim, outputHeight, targetY, start, end) {
+    var entrance = Math.min(0.25, (end - start) * 0.4);
+    var exit = Math.min(0.2, (end - start) * 0.4);
+    var slideY = Math.round(outputHeight * 0.03);
+    var slideX = Math.round(outputHeight * 0.05);
+    var tRel = '(t-' + num(start) + ')';
+    var alphaExpr = null;
+    var xExpr = '(w-text_w)/2';
+    var yExpr = String(Math.round(targetY));
+
+    if (anim && anim !== 'none') {
+      alphaExpr =
+        'if(lt(t-' + num(start) + ',' + num(entrance) + '),' + tRel + '/' + num(entrance) +
+        ',if(gt(t,' + num(end - exit) + '),(' + num(end) + '-t)/' + num(exit) + ',1))';
+    }
+    if (anim === 'slide_up') {
+      yExpr = 'if(lt(t-' + num(start) + ',' + num(entrance) + '),' + Math.round(targetY) + '+(1-' + tRel + '/' + num(entrance) + ')*' + slideY + ',' + Math.round(targetY) + ')';
+    } else if (anim === 'slide_down') {
+      yExpr = 'if(lt(t-' + num(start) + ',' + num(entrance) + '),' + Math.round(targetY) + '-(1-' + tRel + '/' + num(entrance) + ')*' + slideY + ',' + Math.round(targetY) + ')';
+    } else if (anim === 'slide_left') {
+      xExpr = 'if(lt(t-' + num(start) + ',' + num(entrance) + '),(w-text_w)/2+(1-' + tRel + '/' + num(entrance) + ')*' + slideX + ',(w-text_w)/2)';
+    } else if (anim === 'slide_right') {
+      xExpr = 'if(lt(t-' + num(start) + ',' + num(entrance) + '),(w-text_w)/2-(1-' + tRel + '/' + num(entrance) + ')*' + slideX + ',(w-text_w)/2)';
+    } else if (anim === 'pop') {
+      var slideYSmall = Math.round(slideY * 0.6);
+      yExpr = 'if(lt(t-' + num(start) + ',' + num(entrance) + '),' + Math.round(targetY) + '+(1-' + tRel + '/' + num(entrance) + ')*' + slideYSmall + ',' + Math.round(targetY) + ')';
+    }
+    return { xExpr: xExpr, yExpr: yExpr, alphaExpr: alphaExpr };
+  }
+
+  /**
    * @param {Object} p
    * @param {number} p.width  output width in px
    * @param {number} p.height output height in px
@@ -183,8 +218,10 @@
         if (cap.borderw) {
           style += ':borderw=' + cap.borderw + ':bordercolor=' + cap.bordercolor;
         }
+        var anim = animationExprs(cap.animation, H, ys[li], cap.start, cap.end);
+        if (anim.alphaExpr) style += ":alpha='" + anim.alphaExpr + "'";
         parts.push(
-          '[' + cur + ']drawtext=' + style + ':x=(w-text_w)/2:y=' + ys[li] +
+          '[' + cur + ']drawtext=' + style + ":x='" + anim.xExpr + "':y='" + anim.yExpr + "'" +
           ":enable='between(t," + num(cap.start) + ',' + num(cap.end) + ")'" +
           '[' + next + ']'
         );

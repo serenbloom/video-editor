@@ -12,6 +12,16 @@
   var TRANSFORMERS_URL = 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/+esm';
   var WHISPER_MODEL = 'Xenova/whisper-tiny';
 
+  var TELOP_ANIMATIONS = {
+    none: 'なし(瞬間表示)',
+    fade: 'フェード',
+    slide_up: '下からスライドイン',
+    slide_down: '上からスライドイン',
+    slide_left: '右からスライドイン',
+    slide_right: '左からスライドイン',
+    pop: 'ポップ'
+  };
+
   var TELOP_STYLES = {
     yellow_bold: {
       label: '黄色太字(バラエティ風)',
@@ -1028,6 +1038,7 @@
       text: '新しいテロップ',
       style: 'yellow_bold',
       position: TELOP_STYLES.yellow_bold.position,
+      animation: 'slide_up',
       fontsizeBase: 56
     }, prefill || {});
     state.captions.push(cap);
@@ -1058,6 +1069,9 @@
         var jp = p === 'top' ? '上' : p === 'center' ? '中央' : '下';
         return '<option value="' + p + '"' + (cap.position === p ? ' selected' : '') + '>' + jp + '</option>';
       }).join('');
+      var animOptions = Object.keys(TELOP_ANIMATIONS).map(function (key) {
+        return '<option value="' + key + '"' + ((cap.animation || 'none') === key ? ' selected' : '') + '>' + TELOP_ANIMATIONS[key] + '</option>';
+      }).join('');
       card.innerHTML =
         '<div class="row"><textarea class="text-input">' + escapeHtml(cap.text) + '</textarea>' +
         '<button class="remove-btn">削除</button></div>' +
@@ -1067,7 +1081,8 @@
         '</div>' +
         '<div class="row"><label class="inline">スタイル<select class="style-input">' + styleOptions + '</select></label>' +
         '<label class="inline">位置<select class="pos-input">' + posOptions + '</select></label></div>' +
-        '<div class="row"><label class="inline">文字サイズ<input type="number" step="2" min="20" max="140" class="size-input" value="' + cap.fontsizeBase + '"></label></div>';
+        '<div class="row"><label class="inline">アニメーション<select class="anim-input">' + animOptions + '</select></label>' +
+        '<label class="inline">文字サイズ<input type="number" step="2" min="20" max="140" class="size-input" value="' + cap.fontsizeBase + '"></label></div>';
       card.querySelector('.text-input').addEventListener('input', function (e) {
         cap.text = e.target.value; renderCaptionVisibility(state.globalTime);
       });
@@ -1084,6 +1099,9 @@
       });
       card.querySelector('.pos-input').addEventListener('change', function (e) {
         cap.position = e.target.value; renderCaptionVisibility(state.globalTime); pushHistory();
+      });
+      card.querySelector('.anim-input').addEventListener('change', function (e) {
+        cap.animation = e.target.value; pushHistory();
       });
       card.querySelector('.size-input').addEventListener('change', function (e) {
         cap.fontsizeBase = clamp(parseInt(e.target.value, 10) || 56, 20, 140); renderCaptionVisibility(state.globalTime); pushHistory();
@@ -1383,7 +1401,7 @@
             var styleDef = TELOP_STYLES[cap.style] || TELOP_STYLES.yellow_bold;
             return Object.assign({
               lines: fileNames, fontsize: fontsize, position: cap.position,
-              start: cap.start, end: cap.end
+              animation: cap.animation, start: cap.start, end: cap.end
             }, styleDef.ffmpeg);
           });
         });
