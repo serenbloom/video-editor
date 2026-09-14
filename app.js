@@ -59,10 +59,21 @@
     playing: false
   };
 
+  var HISTORY_LIMIT = 60;
+  var history = { stack: [], index: -1, restoring: false };
+
   var $ = function (id) { return document.getElementById(id); };
   var el = {
     ffmpegStatus: $('ffmpegStatus'),
     modelStatus: $('modelStatus'),
+    undoBtn: $('undoBtn'),
+    redoBtn: $('redoBtn'),
+    projectNameInput: $('projectNameInput'),
+    saveProjectBtn: $('saveProjectBtn'),
+    projectSelect: $('projectSelect'),
+    loadProjectBtn: $('loadProjectBtn'),
+    deleteProjectBtn: $('deleteProjectBtn'),
+    projectStatus: $('projectStatus'),
     clipInput: $('clipInput'),
     clipList: $('clipList'),
     overlayFileInput: $('overlayFileInput'),
@@ -103,6 +114,68 @@
     var d = document.createElement('div');
     d.textContent = str == null ? '' : str;
     return d.innerHTML;
+  }
+  function isTypingTarget(target) {
+    if (!target) return false;
+    var tag = target.tagName;
+    return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
+  }
+
+  function snapshotEditState() {
+    return {
+      sequence: JSON.parse(JSON.stringify(state.sequence)),
+      overlays: JSON.parse(JSON.stringify(state.overlays)),
+      captions: JSON.parse(JSON.stringify(state.captions)),
+      selectedSeqId: state.selectedSeqId,
+      selectedOverlayId: state.selectedOverlayId
+    };
+  }
+
+  function pushHistory() {
+    if (history.restoring) return;
+    history.stack = history.stack.slice(0, history.index + 1);
+    history.stack.push(snapshotEditState());
+    if (history.stack.length > HISTORY_LIMIT) history.stack.shift();
+    history.index = history.stack.length - 1;
+    updateUndoRedoButtons();
+  }
+
+  function restoreSnapshot(snap) {
+    history.restoring = true;
+    state.sequence = JSON.parse(JSON.stringify(snap.sequence));
+    state.overlays = JSON.parse(JSON.stringify(snap.overlays));
+    state.captions = JSON.parse(JSON.stringify(snap.captions));
+    state.selectedSeqId = snap.selectedSeqId;
+    state.selectedOverlayId = snap.selectedOverlayId;
+    recomputeOffsets();
+    renderSequence();
+    renderColorEditor();
+    renderOverlayList();
+    renderCaptionList();
+    seekGlobal(Math.min(state.globalTime, state.totalDuration));
+    renderOverlayVisibility(state.globalTime);
+    renderCaptionVisibility(state.globalTime);
+    history.restoring = false;
+  }
+
+  function undo() {
+    if (history.index <= 0) return;
+    history.index -= 1;
+    restoreSnapshot(history.stack[history.index]);
+    updateUndoRedoButtons();
+  }
+
+  function redo() {
+    if (history.index >= history.stack.length - 1) return;
+    history.index += 1;
+    restoreSnapshot(history.stack[history.index]);
+    updateUndoRedoButtons();
+  }
+
+  function updateUndoRedoButtons() {
+    if (!el.undoBtn) return;
+    el.undoBtn.disabled = history.index <= 0;
+    el.redoBtn.disabled = history.index >= history.stack.length - 1;
   }
 
   try {
@@ -240,6 +313,7 @@
     renderSequence();
     renderColorEditor();
     seekGlobal(state.globalTime || 0);
+    pushHistory();
   }
 
   function removeSeqItem(id) {
@@ -249,6 +323,7 @@
     renderSequence();
     renderColorEditor();
     seekGlobal(Math.min(state.globalTime, state.totalDuration));
+    pushHistory();
   }
 
   function moveSeqItem(id, dir) {
@@ -261,6 +336,7 @@
     recomputeOffsets();
     renderSequence();
     seekGlobal(state.globalTime);
+    pushHistory();
   }
 
   function recomputeOffsets() {
@@ -306,12 +382,12 @@
       card.querySelector('.in-input').addEventListener('change', function (e) {
         var v = clamp(parseFloat(e.target.value) || 0, 0, item.out - 0.1);
         item.in = v;
-        recomputeOffsets(); renderSequence(); seekGlobal(state.globalTime);
+        recomputeOffsets(); renderSequence(); seekGlobal(state.globalTime); pushHistory();
       });
       card.querySelector('.out-input').addEventListener('change', function (e) {
         var v = clamp(parseFloat(e.target.value) || 0, item.in + 0.1, clip.duration);
         item.out = v;
-        recomputeOffsets(); renderSequence(); seekGlobal(state.globalTime);
+        recomputeOffsets(); renderSequence(); seekGlobal(state.globalTime); pushHistory();
       });
       card.querySelector('.up-btn').addEventListener('click', function () { moveSeqItem(item.id, -1); });
       card.querySelector('.down-btn').addEventListener('click', function () { moveSeqItem(item.id, 1); });
@@ -425,6 +501,7 @@
     state.selectedOverlayId = id;
     renderOverlayList();
     renderOverlayVisibility(state.globalTime);
+    pushHistory();
   }
 
   function removeOverlay(id) {
@@ -432,6 +509,7 @@
     if (state.selectedOverlayId === id) state.selectedOverlayId = null;
     renderOverlayList();
     renderOverlayVisibility(state.globalTime);
+    pushHistory();
   }
 
   function renderOverlayList() {
@@ -460,10 +538,12 @@
       card.querySelector('.start-input').addEventListener('change', function (e) {
         ov.start = clamp(parseFloat(e.target.value) || 0, 0, ov.end - 0.1);
         renderOverlayVisibility(state.globalTime);
+        pushHistory();
       });
       card.querySelector('.end-input').addEventListener('change', function (e) {
         ov.end = clamp(parseFloat(e.target.value) || 0, ov.start + 0.1, state.totalDuration || 9999);
         renderOverlayVisibility(state.globalTime);
+        pushHistory();
       });
       var opacityInput = card.querySelector('.opacity-input');
       opacityInput.addEventListener('input', function (e) {
@@ -471,6 +551,7 @@
         card.querySelector('.rangeval').textContent = Math.round(ov.opacity * 100) + '%';
         renderOverlayVisibility(state.globalTime);
       });
+      opacityInput.addEventListener('change', function () { pushHistory(); });
       el.overlayList.appendChild(card);
     });
   }
@@ -523,6 +604,7 @@
       function onUp() {
         document.removeEventListener('mousemove', onMove);
         document.removeEventListener('mouseup', onUp);
+        pushHistory();
       }
       document.addEventListener('mousemove', onMove);
       document.addEventListener('mouseup', onUp);
@@ -542,13 +624,14 @@
       function onUp() {
         document.removeEventListener('mousemove', onMove);
         document.removeEventListener('mouseup', onUp);
+        pushHistory();
       }
       document.addEventListener('mousemove', onMove);
       document.addEventListener('mouseup', onUp);
     });
   }
 
-  function addCaption(prefill) {
+  function addCaption(prefill, skipHistory) {
     var id = uid();
     var cap = Object.assign({
       id: id,
@@ -563,6 +646,7 @@
     state.captions.sort(function (a, b) { return a.start - b.start; });
     renderCaptionList();
     renderCaptionVisibility(state.globalTime);
+    if (!skipHistory) pushHistory();
     return cap;
   }
   el.addCaptionBtn.addEventListener('click', function () { addCaption(); });
@@ -571,6 +655,7 @@
     state.captions = state.captions.filter(function (c) { return c.id !== id; });
     renderCaptionList();
     renderCaptionVisibility(state.globalTime);
+    pushHistory();
   }
 
   function renderCaptionList() {
@@ -598,21 +683,22 @@
       card.querySelector('.text-input').addEventListener('input', function (e) {
         cap.text = e.target.value; renderCaptionVisibility(state.globalTime);
       });
+      card.querySelector('.text-input').addEventListener('blur', function () { pushHistory(); });
       card.querySelector('.start-input').addEventListener('change', function (e) {
-        cap.start = clamp(parseFloat(e.target.value) || 0, 0, cap.end - 0.1); renderCaptionVisibility(state.globalTime);
+        cap.start = clamp(parseFloat(e.target.value) || 0, 0, cap.end - 0.1); renderCaptionVisibility(state.globalTime); pushHistory();
       });
       card.querySelector('.end-input').addEventListener('change', function (e) {
-        cap.end = clamp(parseFloat(e.target.value) || 0, cap.start + 0.1, state.totalDuration || 9999); renderCaptionVisibility(state.globalTime);
+        cap.end = clamp(parseFloat(e.target.value) || 0, cap.start + 0.1, state.totalDuration || 9999); renderCaptionVisibility(state.globalTime); pushHistory();
       });
       card.querySelector('.style-input').addEventListener('change', function (e) {
         cap.style = e.target.value; cap.position = TELOP_STYLES[cap.style].position;
-        renderCaptionList(); renderCaptionVisibility(state.globalTime);
+        renderCaptionList(); renderCaptionVisibility(state.globalTime); pushHistory();
       });
       card.querySelector('.pos-input').addEventListener('change', function (e) {
-        cap.position = e.target.value; renderCaptionVisibility(state.globalTime);
+        cap.position = e.target.value; renderCaptionVisibility(state.globalTime); pushHistory();
       });
       card.querySelector('.size-input').addEventListener('change', function (e) {
-        cap.fontsizeBase = clamp(parseInt(e.target.value, 10) || 56, 20, 140); renderCaptionVisibility(state.globalTime);
+        cap.fontsizeBase = clamp(parseInt(e.target.value, 10) || 56, 20, 140); renderCaptionVisibility(state.globalTime); pushHistory();
       });
       card.querySelector('.remove-btn').addEventListener('click', function () { removeCaption(cap.id); });
       el.captionList.appendChild(card);
@@ -678,11 +764,13 @@
           el.previewVideo.style.filter = toCssFilter(item.color);
         }
       });
+      input.addEventListener('change', function () { pushHistory(); });
     });
     el.colorEditor.querySelector('.reset-btn').addEventListener('click', function () {
       item.color = { brightness: 0, contrast: 0, saturation: 100, hue: 0 };
       renderColorEditor();
       if (state.currentSeqIndex === state.sequence.indexOf(item)) el.previewVideo.style.filter = toCssFilter(item.color);
+      pushHistory();
     });
   }
 
@@ -992,7 +1080,7 @@
               text: text,
               style: 'white_box',
               position: TELOP_STYLES.white_box.position
-            });
+            }, true);
           });
           return transcriber;
         }).catch(function (err) {
@@ -1004,6 +1092,7 @@
     });
     chain.then(function () {
       el.transcribeProgress.textContent = '完了しました。';
+      pushHistory();
     }).catch(function (err) {
       el.transcribeProgress.textContent = 'エラー: ' + (err && err.message ? err.message : err);
     }).finally(function () {
@@ -1014,5 +1103,219 @@
 
   window.addEventListener('resize', function () { renderCaptionVisibility(state.globalTime); });
 
+  if (el.undoBtn) el.undoBtn.addEventListener('click', undo);
+  if (el.redoBtn) el.redoBtn.addEventListener('click', redo);
+
+  document.addEventListener('keydown', function (e) {
+    var typing = isTypingTarget(document.activeElement);
+    var mod = e.ctrlKey || e.metaKey;
+    if (mod && !typing && (e.key === 'z' || e.key === 'Z')) {
+      e.preventDefault();
+      if (e.shiftKey) redo(); else undo();
+      return;
+    }
+    if (mod && !typing && (e.key === 'y' || e.key === 'Y')) {
+      e.preventDefault(); redo(); return;
+    }
+    if (mod && (e.key === 's' || e.key === 'S')) {
+      e.preventDefault(); promptSaveProject(); return;
+    }
+    if (typing) return;
+    if (e.code === 'Space') {
+      e.preventDefault();
+      if (state.playing) pausePlayback(); else startPlayback();
+      return;
+    }
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      pausePlayback();
+      seekGlobal(state.globalTime - (e.shiftKey ? 5 : 1));
+      return;
+    }
+    if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      pausePlayback();
+      seekGlobal(state.globalTime + (e.shiftKey ? 5 : 1));
+      return;
+    }
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      if (state.selectedOverlayId) { e.preventDefault(); removeOverlay(state.selectedOverlayId); return; }
+      if (state.selectedSeqId) { e.preventDefault(); removeSeqItem(state.selectedSeqId); return; }
+    }
+  });
+
+  var PROJECT_DB_NAME = 'reel-cutter-db';
+  var PROJECT_STORE = 'projects';
+  function openProjectDb() {
+    return new Promise(function (resolve, reject) {
+      var req = indexedDB.open(PROJECT_DB_NAME, 1);
+      req.onupgradeneeded = function () {
+        req.result.createObjectStore(PROJECT_STORE, { keyPath: 'name' });
+      };
+      req.onsuccess = function () { resolve(req.result); };
+      req.onerror = function () { reject(req.error); };
+    });
+  }
+  function dbPut(record) {
+    return openProjectDb().then(function (db) {
+      return new Promise(function (resolve, reject) {
+        var tx = db.transaction(PROJECT_STORE, 'readwrite');
+        tx.objectStore(PROJECT_STORE).put(record);
+        tx.oncomplete = function () { resolve(); };
+        tx.onerror = function () { reject(tx.error); };
+      });
+    });
+  }
+  function dbGet(name) {
+    return openProjectDb().then(function (db) {
+      return new Promise(function (resolve, reject) {
+        var tx = db.transaction(PROJECT_STORE, 'readonly');
+        var req = tx.objectStore(PROJECT_STORE).get(name);
+        req.onsuccess = function () { resolve(req.result); };
+        req.onerror = function () { reject(req.error); };
+      });
+    });
+  }
+  function dbGetAllNames() {
+    return openProjectDb().then(function (db) {
+      return new Promise(function (resolve, reject) {
+        var tx = db.transaction(PROJECT_STORE, 'readonly');
+        var req = tx.objectStore(PROJECT_STORE).getAllKeys();
+        req.onsuccess = function () { resolve(req.result); };
+        req.onerror = function () { reject(req.error); };
+      });
+    });
+  }
+  function dbDelete(name) {
+    return openProjectDb().then(function (db) {
+      return new Promise(function (resolve, reject) {
+        var tx = db.transaction(PROJECT_STORE, 'readwrite');
+        tx.objectStore(PROJECT_STORE).delete(name);
+        tx.oncomplete = function () { resolve(); };
+        tx.onerror = function () { reject(tx.error); };
+      });
+    });
+  }
+
+  function refreshProjectList() {
+    if (!el.projectSelect) return Promise.resolve();
+    return dbGetAllNames().then(function (names) {
+      el.projectSelect.innerHTML = names.map(function (n) {
+        return '<option value="' + escapeHtml(n) + '">' + escapeHtml(n) + '</option>';
+      }).join('');
+    }).catch(function () {});
+  }
+
+  function setProjectStatus(text) {
+    if (el.projectStatus) el.projectStatus.textContent = text;
+  }
+
+  function promptSaveProject() {
+    var name = (el.projectNameInput && el.projectNameInput.value.trim()) || prompt('プロジェクト名を入力してください', '');
+    if (!name) return;
+    if (el.projectNameInput) el.projectNameInput.value = name;
+    saveProject(name);
+  }
+
+  function saveProject(name) {
+    setProjectStatus('保存中…');
+    var record = {
+      name: name,
+      savedAt: Date.now(),
+      resolution: el.resolutionSelect ? el.resolutionSelect.value : '1080x1920',
+      fps: el.fpsSelect ? el.fpsSelect.value : '30',
+      clips: state.clips.map(function (c) {
+        return { id: c.id, name: c.name, file: c.file, duration: c.duration, width: c.width, height: c.height };
+      }),
+      overlayBin: state.overlayBin.map(function (m) {
+        return { id: m.id, name: m.name, file: m.file, kind: m.kind, duration: m.duration, width: m.width, height: m.height };
+      }),
+      sequence: JSON.parse(JSON.stringify(state.sequence)),
+      overlays: JSON.parse(JSON.stringify(state.overlays)),
+      captions: JSON.parse(JSON.stringify(state.captions))
+    };
+    dbPut(record).then(function () {
+      setProjectStatus('保存しました(' + new Date(record.savedAt).toLocaleTimeString() + ')');
+      return refreshProjectList();
+    }).then(function () {
+      if (el.projectSelect) el.projectSelect.value = name;
+    }).catch(function (err) {
+      setProjectStatus('保存に失敗しました: ' + err.message);
+    });
+  }
+
+  function loadProject(name) {
+    if (!name) return;
+    setProjectStatus('読み込み中…');
+    dbGet(name).then(function (record) {
+      if (!record) { setProjectStatus('見つかりませんでした'); return; }
+      var probeChain = Promise.resolve();
+      var newClips = [];
+      record.clips.forEach(function (c) {
+        probeChain = probeChain.then(function () {
+          return probeMediaFile(c.file).then(function (meta) {
+            newClips.push({
+              id: c.id, name: c.name, file: c.file, url: meta.url,
+              duration: c.duration, width: c.width, height: c.height, thumb: meta.thumb,
+              ffmpegName: null
+            });
+          });
+        });
+      });
+      var newOverlayBin = [];
+      record.overlayBin.forEach(function (m) {
+        probeChain = probeChain.then(function () {
+          var probe = m.kind === 'video' ? probeMediaFile(m.file) : probeImageFile(m.file);
+          return probe.then(function (meta) {
+            newOverlayBin.push({
+              id: m.id, name: m.name, file: m.file, kind: m.kind, url: meta.url,
+              duration: m.duration, width: m.width, height: m.height, thumb: meta.thumb,
+              ffmpegName: null
+            });
+          });
+        });
+      });
+      return probeChain.then(function () {
+        state.clips = newClips;
+        state.overlayBin = newOverlayBin;
+        state.sequence = record.sequence || [];
+        state.overlays = record.overlays || [];
+        state.captions = record.captions || [];
+        state.selectedSeqId = state.sequence.length ? state.sequence[0].id : null;
+        state.selectedOverlayId = null;
+        if (el.resolutionSelect && record.resolution) el.resolutionSelect.value = record.resolution;
+        if (el.fpsSelect && record.fps) el.fpsSelect.value = record.fps;
+        if (el.projectNameInput) el.projectNameInput.value = name;
+        recomputeOffsets();
+        renderClipList();
+        renderOverlayBinList();
+        renderSequence();
+        renderColorEditor();
+        renderOverlayList();
+        renderCaptionList();
+        seekGlobal(0);
+        history.stack = [];
+        history.index = -1;
+        pushHistory();
+        setProjectStatus('「' + name + '」を読み込みました');
+      });
+    }).catch(function (err) {
+      setProjectStatus('読み込みに失敗しました: ' + err.message);
+    });
+  }
+
+  if (el.saveProjectBtn) el.saveProjectBtn.addEventListener('click', promptSaveProject);
+  if (el.loadProjectBtn) el.loadProjectBtn.addEventListener('click', function () {
+    loadProject(el.projectSelect && el.projectSelect.value);
+  });
+  if (el.deleteProjectBtn) el.deleteProjectBtn.addEventListener('click', function () {
+    var name = el.projectSelect && el.projectSelect.value;
+    if (!name) return;
+    if (!confirm('プロジェクト「' + name + '」を削除しますか?')) return;
+    dbDelete(name).then(refreshProjectList).then(function () { setProjectStatus('削除しました'); });
+  });
+  refreshProjectList();
+
   updateTransportUI();
+  pushHistory();
 })();

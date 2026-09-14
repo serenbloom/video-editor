@@ -9,6 +9,10 @@
 <body>
 <header class="app-header">
   <div class="brand">Reel Cutter</div>
+  <div class="header-actions">
+    <button id="undoBtn" class="icon-btn" title="元に戻す (Ctrl+Z)" disabled>↺</button>
+    <button id="redoBtn" class="icon-btn" title="やり直す (Ctrl+Shift+Z)" disabled>↻</button>
+  </div>
   <div class="status-row">
     <span id="ffmpegStatus" class="status-pill">FFmpeg: 未読込</span>
     <span id="modelStatus" class="status-pill">音声認識: 未読込</span>
@@ -17,6 +21,20 @@
 
 <main class="layout">
   <aside class="panel panel-left">
+    <section class="box">
+      <h2>プロジェクト</h2>
+      <div class="project-row">
+        <input type="text" id="projectNameInput" placeholder="プロジェクト名">
+        <button id="saveProjectBtn" class="secondary-btn small">保存</button>
+      </div>
+      <div class="project-row">
+        <select id="projectSelect"></select>
+        <button id="loadProjectBtn" class="secondary-btn small">開く</button>
+        <button id="deleteProjectBtn" class="icon-btn small" title="削除">✕</button>
+      </div>
+      <div id="projectStatus" class="progress-text"></div>
+    </section>
+
     <section class="box">
       <h2>① 素材(動画を読み込む)</h2>
       <label class="file-btn">
@@ -50,6 +68,7 @@
       <input type="range" id="seekBar" min="0" max="0" step="0.01" value="0">
       <span id="timeLabel" class="time-label">00:00 / 00:00</span>
     </div>
+    <p class="shortcut-hint">ショートカット: Space 再生/一時停止 ・ ←/→ 1秒送り(Shiftで5秒) ・ Delete 選択項目を削除 ・ Ctrl+Z 元に戻す ・ Ctrl+Shift+Z やり直す ・ Ctrl+S プロジェクト保存</p>
 
     <div class="box timeline-box">
       <h2>② タイムライン(カット&結合)</h2>
