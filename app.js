@@ -115,6 +115,13 @@
     recordVoiceoverBtn: $('recordVoiceoverBtn'),
     recordStatus: $('recordStatus'),
     audioClipList: $('audioClipList'),
+    chartTypeSelect: $('chartTypeSelect'),
+    chartTitleInput: $('chartTitleInput'),
+    chartDataInput: $('chartDataInput'),
+    chartThemeSelect: $('chartThemeSelect'),
+    chartDurationInput: $('chartDurationInput'),
+    generateChartBtn: $('generateChartBtn'),
+    chartStatus: $('chartStatus'),
     previewStage: $('previewStage'),
     previewVideo: $('previewVideo'),
     overlayLayer: $('overlayLayer'),
@@ -435,6 +442,172 @@
       });
       audio.addEventListener('error', function () {
         reject(new Error('音声ファイルを読み込めませんでした: ' + file.name));
+      });
+    });
+  }
+
+  var CHART_THEMES = {
+    dark: { bg: '#15161c', text: '#eceef5', colors: ['#7c8cff', '#ff6b9d', '#4ade80', '#fbbf24', '#38bdf8'] },
+    light: { bg: '#ffffff', text: '#111111', colors: ['#6366f1', '#ec4899', '#22c55e', '#f59e0b', '#0ea5e9'] },
+    pop: { bg: '#1a0b2e', text: '#ffffff', colors: ['#ff3d7f', '#ffe600', '#00e5ff', '#7c4dff', '#00ff9d'] }
+  };
+
+  function drawChartFrame(ctx, W, H, opts, progress) {
+    var ease = 1 - Math.pow(1 - progress, 3);
+    var theme = opts.theme;
+    ctx.fillStyle = theme.bg;
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = theme.text;
+    ctx.font = 'bold 36px sans-serif';
+    ctx.textAlign = 'center';
+    if (opts.title) ctx.fillText(opts.title, W / 2, 56);
+
+    var data = opts.data;
+    if (!data.length) return;
+    var max = Math.max.apply(null, data.map(function (d) { return d.value; })) || 1;
+    var chartTop = 90, chartBottom = H - 90, chartLeft = 60, chartRight = W - 60;
+    var chartH = chartBottom - chartTop;
+
+    if (opts.type === 'bar') {
+      var n = data.length, gap = 20;
+      var barW = (chartRight - chartLeft - gap * (n - 1)) / n;
+      data.forEach(function (d, i) {
+        var h = (d.value / max) * chartH * ease;
+        var x = chartLeft + i * (barW + gap);
+        var y = chartBottom - h;
+        ctx.fillStyle = theme.colors[i % theme.colors.length];
+        ctx.fillRect(x, y, barW, h);
+        ctx.fillStyle = theme.text;
+        ctx.font = '18px sans-serif';
+        ctx.fillText(d.label, x + barW / 2, chartBottom + 26);
+        ctx.fillText(String(d.value), x + barW / 2, y - 8);
+      });
+    } else if (opts.type === 'line') {
+      var n2 = data.length;
+      var stepX = (chartRight - chartLeft) / Math.max(1, n2 - 1);
+      var pointsToDraw = Math.max(1, Math.ceil(n2 * ease));
+      ctx.strokeStyle = theme.colors[0];
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      data.slice(0, pointsToDraw).forEach(function (d, i) {
+        var x = chartLeft + i * stepX;
+        var y = chartBottom - (d.value / max) * chartH;
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+      data.slice(0, pointsToDraw).forEach(function (d, i) {
+        var x = chartLeft + i * stepX;
+        var y = chartBottom - (d.value / max) * chartH;
+        ctx.fillStyle = theme.colors[0];
+        ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = theme.text;
+        ctx.font = '16px sans-serif';
+        ctx.fillText(d.label, x, chartBottom + 24);
+      });
+    } else if (opts.type === 'pie') {
+      var total = data.reduce(function (s, d) { return s + d.value; }, 0) || 1;
+      var cx = W / 2, cy = (chartTop + chartBottom) / 2, r = Math.min(chartRight - chartLeft, chartBottom - chartTop) / 2;
+      var startAngle = -Math.PI / 2;
+      var fullSweep = Math.PI * 2 * ease;
+      var consumed = 0;
+      data.forEach(function (d, i) {
+        var sweep = (d.value / total) * Math.PI * 2;
+        var thisSweep = Math.max(0, Math.min(sweep, fullSweep - consumed));
+        if (thisSweep > 0) {
+          ctx.fillStyle = theme.colors[i % theme.colors.length];
+          ctx.beginPath();
+          ctx.moveTo(cx, cy);
+          ctx.arc(cx, cy, r, startAngle, startAngle + thisSweep);
+          ctx.closePath();
+          ctx.fill();
+          startAngle += thisSweep;
+        }
+        consumed += sweep;
+      });
+      ctx.font = '16px sans-serif'; ctx.textAlign = 'left';
+      data.forEach(function (d, i) {
+        var ly = chartBottom + 24 + i * 20;
+        if (ly > H - 10) return;
+        ctx.fillStyle = theme.colors[i % theme.colors.length];
+        ctx.fillRect(chartLeft, ly - 12, 14, 14);
+        ctx.fillStyle = theme.text;
+        ctx.fillText(d.label + ': ' + d.value, chartLeft + 20, ly);
+      });
+    }
+  }
+
+  function generateChartVideo(opts) {
+    return new Promise(function (resolve, reject) {
+      var W = 720, H = 720;
+      var canvas = document.createElement('canvas');
+      canvas.width = W; canvas.height = H;
+      var ctx = canvas.getContext('2d');
+      var stream = canvas.captureStream(30);
+      var mimeType = (window.MediaRecorder && MediaRecorder.isTypeSupported('video/webm;codecs=vp9')) ? 'video/webm;codecs=vp9' : 'video/webm';
+      var rec;
+      try {
+        rec = new MediaRecorder(stream, { mimeType: mimeType, videoBitsPerSecond: 4000000 });
+      } catch (e) { reject(e); return; }
+      var chunks = [];
+      rec.ondataavailable = function (e) { if (e.data.size > 0) chunks.push(e.data); };
+      rec.onstop = function () { resolve(new Blob(chunks, { type: 'video/webm' })); };
+      rec.onerror = function (e) { reject(e.error || new Error('録画に失敗しました')); };
+      rec.start();
+      var startTs = performance.now();
+      var durMs = opts.duration * 1000;
+      function frame() {
+        var elapsed = performance.now() - startTs;
+        var progress = Math.min(1, elapsed / durMs);
+        drawChartFrame(ctx, W, H, opts, progress);
+        if (elapsed < durMs + 150) {
+          requestAnimationFrame(frame);
+        } else {
+          rec.stop();
+        }
+      }
+      requestAnimationFrame(frame);
+    });
+  }
+
+  function parseChartData(text) {
+    return String(text || '').split('\n').map(function (line) {
+      var parts = line.split(',');
+      if (parts.length < 2) return null;
+      var label = parts[0].trim();
+      var value = parseFloat(parts[1]);
+      if (!label || isNaN(value)) return null;
+      return { label: label, value: value };
+    }).filter(Boolean);
+  }
+
+  if (el.generateChartBtn) {
+    el.generateChartBtn.addEventListener('click', function () {
+      var data = parseChartData(el.chartDataInput.value);
+      if (!data.length) { alert('データを「ラベル,値」の形式で1行以上入力してください。'); return; }
+      var opts = {
+        type: el.chartTypeSelect.value,
+        title: el.chartTitleInput.value.trim(),
+        data: data,
+        theme: CHART_THEMES[el.chartThemeSelect.value] || CHART_THEMES.dark,
+        duration: clamp(parseFloat(el.chartDurationInput.value) || 3, 1, 10)
+      };
+      el.generateChartBtn.disabled = true;
+      el.chartStatus.textContent = '生成中…';
+      generateChartVideo(opts).then(function (blob) {
+        return probeMediaFile(blob).then(function (meta) {
+          var media = {
+            id: uid(), name: (opts.title || 'グラフ') + '.webm', file: blob, url: meta.url,
+            kind: 'video', duration: meta.duration, width: meta.width, height: meta.height, thumb: meta.thumb,
+            ffmpegName: null
+          };
+          state.overlayBin.push(media);
+          renderOverlayBinList();
+          el.chartStatus.textContent = '「オーバーレイ素材」に追加しました。④オーバーレイタブから配置してください。';
+        });
+      }).catch(function (err) {
+        el.chartStatus.textContent = 'エラー: ' + (err && err.message ? err.message : err);
+      }).finally(function () {
+        el.generateChartBtn.disabled = false;
       });
     });
   }

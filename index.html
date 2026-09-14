@@ -92,9 +92,10 @@
     <div class="tabs">
       <button class="tab-btn active" data-tab="telop">③ テロップ</button>
       <button class="tab-btn" data-tab="overlay">④ オーバーレイ</button>
-      <button class="tab-btn" data-tab="audio">⑤ 音声</button>
-      <button class="tab-btn" data-tab="color">⑥ 色調補正</button>
-      <button class="tab-btn" data-tab="export">⑦ 書き出し</button>
+      <button class="tab-btn" data-tab="chart">⑤ グラフ作成</button>
+      <button class="tab-btn" data-tab="audio">⑥ 音声</button>
+      <button class="tab-btn" data-tab="color">⑦ 色調補正</button>
+      <button class="tab-btn" data-tab="export">⑧ 書き出し</button>
     </div>
 
     <div class="tab-panel" id="tab-telop">
@@ -113,6 +114,43 @@
       <div class="field-row small-hint">左の「オーバーレイ素材」から画像/動画を追加し、下のリストで表示区間・位置・不透明度を設定します。位置とサイズはプレビュー上のボックスをドラッグしても変更できます。複数追加すると重ねて表示でき、▲▼で前面/背面を入れ替えられます。</div>
       <div id="overlayTrackViz" class="track-viz"></div>
       <div id="overlayList" class="item-list"></div>
+    </div>
+
+    <div class="tab-panel hidden" id="tab-chart">
+      <div class="field-row small-hint">グラフ動画を作って「オーバーレイ素材」に追加します。追加後は④オーバーレイタブから、動画の好きな場所・時間に配置してください。</div>
+      <div class="field-row">
+        <label>グラフの種類
+          <select id="chartTypeSelect">
+            <option value="bar">棒グラフ</option>
+            <option value="line">折れ線グラフ</option>
+            <option value="pie">円グラフ</option>
+          </select>
+        </label>
+      </div>
+      <div class="field-row">
+        <label>タイトル<input type="text" id="chartTitleInput" placeholder="例: 月別売上"></label>
+      </div>
+      <div class="field-row">
+        <label>データ(1行に「ラベル,値」)
+          <textarea id="chartDataInput" rows="5" placeholder="1月,120&#10;2月,150&#10;3月,90">1月,120
+2月,150
+3月,90</textarea>
+        </label>
+      </div>
+      <div class="field-row">
+        <label>配色
+          <select id="chartThemeSelect">
+            <option value="dark">ダーク</option>
+            <option value="light">ライト</option>
+            <option value="pop">ポップ</option>
+          </select>
+        </label>
+      </div>
+      <div class="field-row">
+        <label>長さ(秒)<input type="number" id="chartDurationInput" step="0.5" min="1" max="10" value="3"></label>
+      </div>
+      <button id="generateChartBtn" class="primary-btn">生成してオーバーレイに追加</button>
+      <div id="chartStatus" class="progress-text"></div>
     </div>
 
     <div class="tab-panel hidden" id="tab-audio">
