@@ -82,15 +82,40 @@
     });
 
     var videoLabel, audioLabel;
+    var hasTransition = sequence.some(function (s, i) { return i > 0 && s.transIn > 0; });
     if (n === 1) {
       videoLabel = 'v0';
       audioLabel = 'a0';
-    } else {
+    } else if (!hasTransition) {
       var concatInputs = '';
       for (var i = 0; i < n; i++) concatInputs += '[v' + i + '][a' + i + ']';
       parts.push(concatInputs + 'concat=n=' + n + ':v=1:a=1[vc][ac]');
       videoLabel = 'vc';
       audioLabel = 'ac';
+    } else {
+      // Mixed chain: a crossfade (xfade/acrossfade) at boundaries with a
+      // transition duration, plain concat at any boundary without one
+      // (e.g. a clip too short to fit the requested crossfade).
+      var curV = 'v0', curA = 'a0';
+      for (var j = 1; j < n; j++) {
+        var d = sequence[j].transIn || 0;
+        if (d > 0) {
+          var nv = 'vx' + j, na = 'ax' + j;
+          parts.push(
+            '[' + curV + '][v' + j + ']xfade=transition=' + (p.transitionType || 'fade') +
+            ':duration=' + num(d) + ':offset=' + num(sequence[j].offset) + '[' + nv + ']'
+          );
+          parts.push('[' + curA + '][a' + j + ']acrossfade=d=' + num(d) + '[' + na + ']');
+          curV = nv; curA = na;
+        } else {
+          var nv2 = 'vx' + j, na2 = 'ax' + j;
+          parts.push('[' + curV + '][v' + j + ']concat=n=2:v=1:a=0[' + nv2 + ']');
+          parts.push('[' + curA + '][a' + j + ']concat=n=2:v=0:a=1[' + na2 + ']');
+          curV = nv2; curA = na2;
+        }
+      }
+      videoLabel = curV;
+      audioLabel = curA;
     }
 
     var cur = videoLabel;

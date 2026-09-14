@@ -74,6 +74,15 @@
   var HISTORY_LIMIT = 60;
   var history = { stack: [], index: -1, restoring: false };
 
+  var TRANSITION_TYPES = {
+    fade: 'フェード',
+    dissolve: 'ディゾルブ',
+    slideleft: '左にスライド',
+    wipeup: '上にワイプ',
+    circlecrop: '円形'
+  };
+  state.transition = { type: 'none', duration: 0.4 };
+
   var $ = function (id) { return document.getElementById(id); };
   var el = {
     ffmpegStatus: $('ffmpegStatus'),
@@ -105,6 +114,8 @@
     timeLabel: $('timeLabel'),
     sequenceList: $('sequenceList'),
     sequenceEmptyHint: $('sequenceEmptyHint'),
+    transitionTypeSelect: $('transitionTypeSelect'),
+    transitionDurationInput: $('transitionDurationInput'),
     tabBtns: document.querySelectorAll('.tab-btn'),
     tabPanels: document.querySelectorAll('.tab-panel'),
     transcribeBtn: $('transcribeBtn'),
@@ -686,12 +697,23 @@
   }
 
   function recomputeOffsets() {
-    var t = 0;
+    var transitionOn = state.transition.type !== 'none' && state.transition.duration > 0;
     state.sequence.forEach(function (item) {
       item.dur = Math.max(0.05, item.out - item.in);
-      item.offset = t;
-      t += item.dur;
     });
+    state.sequence.forEach(function (item, idx) {
+      if (idx === 0) {
+        item.offset = 0;
+        item.transIn = 0;
+      } else {
+        var prev = state.sequence[idx - 1];
+        var d = transitionOn ? Math.min(state.transition.duration, item.dur * 0.4, prev.dur * 0.4) : 0;
+        item.transIn = d;
+        item.offset = prev.offset + prev.dur - d;
+      }
+    });
+    var last = state.sequence[state.sequence.length - 1];
+    var t = last ? (last.offset + last.dur) : 0;
     state.totalDuration = t;
     el.seekBar.max = t.toFixed(2);
     if (state.globalTime > t) state.globalTime = t;
@@ -834,6 +856,26 @@
     pausePlayback();
     seekGlobal(parseFloat(e.target.value) || 0);
   });
+
+  if (el.transitionTypeSelect) {
+    Object.keys(TRANSITION_TYPES).forEach(function (key) {
+      var opt = document.createElement('option');
+      opt.value = key; opt.textContent = TRANSITION_TYPES[key];
+      el.transitionTypeSelect.appendChild(opt);
+    });
+    el.transitionTypeSelect.value = state.transition.type;
+    el.transitionTypeSelect.addEventListener('change', function (e) {
+      state.transition.type = e.target.value;
+      recomputeOffsets(); renderSequence(); seekGlobal(state.globalTime);
+    });
+  }
+  if (el.transitionDurationInput) {
+    el.transitionDurationInput.value = state.transition.duration;
+    el.transitionDurationInput.addEventListener('change', function (e) {
+      state.transition.duration = clamp(parseFloat(e.target.value) || 0.1, 0.1, 2);
+      recomputeOffsets(); renderSequence(); seekGlobal(state.globalTime);
+    });
+  }
 
   function addOverlayItem(mediaId) {
     var media = getOverlayMedia(mediaId);
@@ -1270,7 +1312,10 @@
           seqChain = seqChain.then(function () {
             var clip = getClip(item.clipId);
             return addClipInput(clip).then(function (idx) {
-              sequenceParams.push({ inputIndex: idx, in: item.in, out: item.out, color: toFFmpegColor(item.color) });
+              sequenceParams.push({
+                inputIndex: idx, in: item.in, out: item.out, color: toFFmpegColor(item.color),
+                offset: item.offset, transIn: item.transIn || 0
+              });
             });
           });
         });
@@ -1350,7 +1395,8 @@
         var built = window.FilterGraph.buildFilterGraph({
           width: W, height: H, fps: fps, fontFile: 'font.ttf',
           sequence: graphInput.sequence, overlays: graphInput.overlays, captions: graphInput.captions,
-          audioClips: graphInput.audioClips
+          audioClips: graphInput.audioClips,
+          transitionType: state.transition.type !== 'none' ? state.transition.type : undefined
         });
         var flatInputs = inputArgs.reduce(function (a, b) { return a.concat(b); }, []);
         var args = flatInputs.concat([
@@ -1597,6 +1643,7 @@
       savedAt: Date.now(),
       resolution: el.resolutionSelect ? el.resolutionSelect.value : '1080x1920',
       fps: el.fpsSelect ? el.fpsSelect.value : '30',
+      transition: JSON.parse(JSON.stringify(state.transition)),
       clips: state.clips.map(function (c) {
         return { id: c.id, name: c.name, file: c.file, duration: c.duration, width: c.width, height: c.height };
       }),
@@ -1675,6 +1722,11 @@
         state.selectedOverlayId = null;
         if (el.resolutionSelect && record.resolution) el.resolutionSelect.value = record.resolution;
         if (el.fpsSelect && record.fps) el.fpsSelect.value = record.fps;
+        if (record.transition) {
+          state.transition = record.transition;
+          if (el.transitionTypeSelect) el.transitionTypeSelect.value = state.transition.type;
+          if (el.transitionDurationInput) el.transitionDurationInput.value = state.transition.duration;
+        }
         if (el.projectNameInput) el.projectNameInput.value = name;
         recomputeOffsets();
         renderClipList();
