@@ -123,6 +123,27 @@
       cur = next;
     });
 
+    var audioClips = p.audioClips || [];
+    var finalAudioLabel = audioLabel;
+    if (audioClips.length) {
+      var mixInputs = '[' + audioLabel + ']';
+      audioClips.forEach(function (ac, idx) {
+        var vol = num(ac.volume != null ? ac.volume : 1);
+        var startMs = Math.max(0, Math.round(ac.start * 1000));
+        var chain = '[' + ac.inputIndex + ':a]aformat=sample_rates=44100:channel_layouts=stereo,volume=' + vol;
+        if (ac.loop) {
+          chain += ',aloop=loop=-1:size=2000000000,atrim=0:' + num(ac.duration) + ',asetpts=N/SR/TB';
+        } else if (ac.trimDuration) {
+          chain += ',atrim=0:' + num(ac.trimDuration) + ',asetpts=N/SR/TB';
+        }
+        chain += ',adelay=' + startMs + ':all=1[aud' + idx + ']';
+        parts.push(chain);
+        mixInputs += '[aud' + idx + ']';
+      });
+      parts.push(mixInputs + 'amix=inputs=' + (audioClips.length + 1) + ':duration=first:normalize=0[mixedaudio]');
+      finalAudioLabel = 'mixedaudio';
+    }
+
     captions.forEach(function (cap, k) {
       var lines = cap.lines && cap.lines.length ? cap.lines : [cap.file];
       var fontsize = Math.round(cap.fontsize);
@@ -146,7 +167,7 @@
       });
     });
 
-    return { filterComplex: parts.join(';'), videoLabel: cur, audioLabel: audioLabel };
+    return { filterComplex: parts.join(';'), videoLabel: cur, audioLabel: finalAudioLabel };
   }
 
   var api = { buildFilterGraph: buildFilterGraph };

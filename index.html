@@ -82,8 +82,9 @@
     <div class="tabs">
       <button class="tab-btn active" data-tab="telop">③ テロップ</button>
       <button class="tab-btn" data-tab="overlay">④ オーバーレイ</button>
-      <button class="tab-btn" data-tab="color">⑤ 色調補正</button>
-      <button class="tab-btn" data-tab="export">⑥ 書き出し</button>
+      <button class="tab-btn" data-tab="audio">⑤ 音声</button>
+      <button class="tab-btn" data-tab="color">⑥ 色調補正</button>
+      <button class="tab-btn" data-tab="export">⑦ 書き出し</button>
     </div>
 
     <div class="tab-panel" id="tab-telop">
@@ -100,6 +101,36 @@
     <div class="tab-panel hidden" id="tab-overlay">
       <div class="field-row small-hint">左の「オーバーレイ素材」から画像/動画を追加し、下のリストで表示区間・位置・不透明度を設定します。位置とサイズはプレビュー上のボックスをドラッグしても変更できます。</div>
       <div id="overlayList" class="item-list"></div>
+    </div>
+
+    <div class="tab-panel hidden" id="tab-audio">
+      <div class="field-row small-hint">プレビュー中は音声が鳴りません(映像プレビューはミュートです)。実際の音は「書き出し」した動画で確認してください。</div>
+
+      <h3 class="subhead">BGM</h3>
+      <label class="file-btn secondary">
+        BGMファイルを追加
+        <input type="file" id="audioFileInput" accept="audio/*" multiple hidden>
+      </label>
+      <div id="audioBinList" class="media-list"></div>
+
+      <h3 class="subhead">効果音(著作権フリー・リールでよくある定番音)</h3>
+      <div id="sfxGrid" class="sfx-grid">
+        <button data-sfx="whoosh">ホイッシュ</button>
+        <button data-sfx="pop">ポン</button>
+        <button data-sfx="ding">キラーン</button>
+        <button data-sfx="click">カチッ</button>
+        <button data-sfx="drumroll">ドラムロール</button>
+        <button data-sfx="camera_shutter">シャッター音</button>
+        <button data-sfx="notify">通知音</button>
+      </div>
+      <div class="field-row small-hint">ボタンを押すと効果音が生成され、現在の再生位置に自動で配置されます。</div>
+
+      <h3 class="subhead">ボイスオーバー(アフレコ)</h3>
+      <button id="recordVoiceoverBtn" class="secondary-btn">🎙️ 録音開始</button>
+      <div id="recordStatus" class="progress-text"></div>
+
+      <h3 class="subhead">配置した音声</h3>
+      <div id="audioClipList" class="item-list"></div>
     </div>
 
     <div class="tab-panel hidden" id="tab-color">

@@ -48,15 +48,27 @@
   var state = {
     clips: [],
     overlayBin: [],
+    audioBin: [],
     sequence: [],
     overlays: [],
     captions: [],
+    audioClips: [],
     selectedSeqId: null,
     selectedOverlayId: null,
     currentSeqIndex: 0,
     globalTime: 0,
     totalDuration: 0,
     playing: false
+  };
+
+  var SFX_PRESETS = {
+    whoosh: { label: 'ホイッシュ', dur: 0.5 },
+    pop: { label: 'ポン', dur: 0.15 },
+    ding: { label: 'キラーン(決定音)', dur: 0.9 },
+    click: { label: 'カチッ', dur: 0.05 },
+    drumroll: { label: 'ドラムロール', dur: 1.0 },
+    camera_shutter: { label: 'カメラのシャッター', dur: 0.2 },
+    notify: { label: '通知音', dur: 0.5 }
   };
 
   var HISTORY_LIMIT = 60;
@@ -78,6 +90,12 @@
     clipList: $('clipList'),
     overlayFileInput: $('overlayFileInput'),
     overlayBinList: $('overlayBinList'),
+    audioFileInput: $('audioFileInput'),
+    audioBinList: $('audioBinList'),
+    sfxGrid: $('sfxGrid'),
+    recordVoiceoverBtn: $('recordVoiceoverBtn'),
+    recordStatus: $('recordStatus'),
+    audioClipList: $('audioClipList'),
     previewStage: $('previewStage'),
     previewVideo: $('previewVideo'),
     overlayLayer: $('overlayLayer'),
@@ -126,6 +144,7 @@
       sequence: JSON.parse(JSON.stringify(state.sequence)),
       overlays: JSON.parse(JSON.stringify(state.overlays)),
       captions: JSON.parse(JSON.stringify(state.captions)),
+      audioClips: JSON.parse(JSON.stringify(state.audioClips)),
       selectedSeqId: state.selectedSeqId,
       selectedOverlayId: state.selectedOverlayId
     };
@@ -145,6 +164,7 @@
     state.sequence = JSON.parse(JSON.stringify(snap.sequence));
     state.overlays = JSON.parse(JSON.stringify(snap.overlays));
     state.captions = JSON.parse(JSON.stringify(snap.captions));
+    state.audioClips = JSON.parse(JSON.stringify(snap.audioClips || []));
     state.selectedSeqId = snap.selectedSeqId;
     state.selectedOverlayId = snap.selectedOverlayId;
     recomputeOffsets();
@@ -152,6 +172,7 @@
     renderColorEditor();
     renderOverlayList();
     renderCaptionList();
+    renderAudioClipList();
     seekGlobal(Math.min(state.globalTime, state.totalDuration));
     renderOverlayVisibility(state.globalTime);
     renderCaptionVisibility(state.globalTime);
@@ -229,12 +250,182 @@
     });
   }
 
+  function noiseBuffer(ctx, duration) {
+    var buf = ctx.createBuffer(1, Math.max(1, Math.round(ctx.sampleRate * duration)), ctx.sampleRate);
+    var data = buf.getChannelData(0);
+    for (var i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+    return buf;
+  }
+
+  var SFX_BUILDERS = {
+    whoosh: function (ctx) {
+      var dur = 0.5;
+      var noise = ctx.createBufferSource();
+      noise.buffer = noiseBuffer(ctx, dur);
+      var filter = ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.Q.value = 1;
+      filter.frequency.setValueAtTime(300, 0);
+      filter.frequency.linearRampToValueAtTime(4000, dur);
+      var gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.0001, 0);
+      gain.gain.exponentialRampToValueAtTime(1, dur * 0.3);
+      gain.gain.exponentialRampToValueAtTime(0.0001, dur);
+      noise.connect(filter); filter.connect(gain); gain.connect(ctx.destination);
+      noise.start(0);
+    },
+    pop: function (ctx) {
+      var dur = 0.15;
+      var osc = ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(800, 0);
+      osc.frequency.exponentialRampToValueAtTime(200, dur);
+      var gain = ctx.createGain();
+      gain.gain.setValueAtTime(1, 0);
+      gain.gain.exponentialRampToValueAtTime(0.001, dur);
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.start(0); osc.stop(dur);
+    },
+    ding: function (ctx) {
+      var dur = 0.9;
+      [1, 2.01, 3.0].forEach(function (mult, i) {
+        var osc = ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.value = 1000 * mult;
+        var g = ctx.createGain();
+        var amp = i === 0 ? 0.6 : 0.6 / (i + 1);
+        g.gain.setValueAtTime(amp, 0);
+        g.gain.exponentialRampToValueAtTime(0.001, dur);
+        osc.connect(g); g.connect(ctx.destination);
+        osc.start(0); osc.stop(dur);
+      });
+    },
+    click: function (ctx) {
+      var dur = 0.05;
+      var noise = ctx.createBufferSource();
+      noise.buffer = noiseBuffer(ctx, dur);
+      var g = ctx.createGain();
+      g.gain.setValueAtTime(1, 0);
+      g.gain.exponentialRampToValueAtTime(0.001, dur);
+      noise.connect(g); g.connect(ctx.destination);
+      noise.start(0);
+    },
+    drumroll: function (ctx) {
+      var dur = 1.0;
+      var n = 16;
+      for (var i = 0; i < n; i++) {
+        var t = (i / n) * dur * 0.8;
+        var noise = ctx.createBufferSource();
+        noise.buffer = noiseBuffer(ctx, 0.06);
+        var g = ctx.createGain();
+        g.gain.setValueAtTime(0.5, t);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
+        noise.connect(g); g.connect(ctx.destination);
+        noise.start(t);
+      }
+      var osc = ctx.createOscillator();
+      osc.type = 'sine'; osc.frequency.value = 150;
+      var g2 = ctx.createGain();
+      g2.gain.setValueAtTime(1, dur * 0.8);
+      g2.gain.exponentialRampToValueAtTime(0.001, dur);
+      osc.connect(g2); g2.connect(ctx.destination);
+      osc.start(dur * 0.8); osc.stop(dur);
+    },
+    camera_shutter: function (ctx) {
+      [0, 0.1].forEach(function (t) {
+        var noise = ctx.createBufferSource();
+        noise.buffer = noiseBuffer(ctx, 0.03);
+        var g = ctx.createGain();
+        g.gain.setValueAtTime(1, t);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.03);
+        noise.connect(g); g.connect(ctx.destination);
+        noise.start(t);
+      });
+    },
+    notify: function (ctx) {
+      [[0, 900], [0.18, 1200]].forEach(function (pair) {
+        var t = pair[0], freq = pair[1];
+        var osc = ctx.createOscillator();
+        osc.type = 'sine'; osc.frequency.value = freq;
+        var g = ctx.createGain();
+        g.gain.setValueAtTime(0.8, t);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+        osc.connect(g); g.connect(ctx.destination);
+        osc.start(t); osc.stop(t + 0.15);
+      });
+    }
+  };
+
+  function audioBufferToWavBlob(buffer) {
+    var numCh = buffer.numberOfChannels;
+    var sr = buffer.sampleRate;
+    var abuf = new ArrayBuffer(44 + buffer.length * numCh * 2);
+    var view = new DataView(abuf);
+    function writeString(offset, str) { for (var i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i)); }
+    writeString(0, 'RIFF');
+    view.setUint32(4, 36 + buffer.length * numCh * 2, true);
+    writeString(8, 'WAVE');
+    writeString(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, numCh, true);
+    view.setUint32(24, sr, true);
+    view.setUint32(28, sr * numCh * 2, true);
+    view.setUint16(32, numCh * 2, true);
+    view.setUint16(34, 16, true);
+    writeString(36, 'data');
+    view.setUint32(40, buffer.length * numCh * 2, true);
+    var offset = 44;
+    var channels = [];
+    for (var c = 0; c < numCh; c++) channels.push(buffer.getChannelData(c));
+    for (var i2 = 0; i2 < buffer.length; i2++) {
+      for (var c2 = 0; c2 < numCh; c2++) {
+        var sample = Math.max(-1, Math.min(1, channels[c2][i2]));
+        view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
+        offset += 2;
+      }
+    }
+    return new Blob([abuf], { type: 'audio/wav' });
+  }
+
+  function generateSfx(name) {
+    var preset = SFX_BUILDERS[name];
+    if (!preset) return Promise.reject(new Error('unknown sfx: ' + name));
+    var sr = 44100;
+    var dur = SFX_PRESETS[name].dur;
+    var Ctx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+    var ctx = new Ctx(1, Math.ceil(dur * sr) + 1, sr);
+    preset(ctx);
+    return ctx.startRendering().then(function (buffer) {
+      return { blob: audioBufferToWavBlob(buffer), duration: buffer.duration };
+    });
+  }
+
+  function probeAudioFile(file) {
+    return new Promise(function (resolve, reject) {
+      var url = URL.createObjectURL(file);
+      var audio = document.createElement('audio');
+      audio.preload = 'metadata';
+      audio.src = url;
+      audio.addEventListener('loadedmetadata', function () {
+        resolve({ url: url, duration: audio.duration });
+      });
+      audio.addEventListener('error', function () {
+        reject(new Error('音声ファイルを読み込めませんでした: ' + file.name));
+      });
+    });
+  }
+
   function getClip(id) {
     for (var i = 0; i < state.clips.length; i++) if (state.clips[i].id === id) return state.clips[i];
     return null;
   }
   function getOverlayMedia(id) {
     for (var i = 0; i < state.overlayBin.length; i++) if (state.overlayBin[i].id === id) return state.overlayBin[i];
+    return null;
+  }
+  function getAudioMedia(id) {
+    for (var i = 0; i < state.audioBin.length; i++) if (state.audioBin[i].id === id) return state.audioBin[i];
     return null;
   }
 
@@ -297,6 +488,161 @@
         '<button class="add-btn">+ 追加</button>';
       card.querySelector('.add-btn').addEventListener('click', function () { addOverlayItem(m.id); });
       el.overlayBinList.appendChild(card);
+    });
+  }
+
+  el.audioFileInput.addEventListener('change', function (e) {
+    var files = Array.prototype.slice.call(e.target.files || []);
+    files.forEach(function (file) {
+      probeAudioFile(file).then(function (meta) {
+        state.audioBin.push({
+          id: uid(), name: file.name, file: file, url: meta.url, kind: 'bgm',
+          duration: meta.duration, ffmpegName: null
+        });
+        renderAudioBinList();
+      }).catch(function (err) { alert(err.message); });
+    });
+    el.audioFileInput.value = '';
+  });
+
+  function renderAudioBinList() {
+    el.audioBinList.innerHTML = '';
+    state.audioBin.forEach(function (m) {
+      var card = document.createElement('div');
+      card.className = 'media-card';
+      card.innerHTML =
+        '<div class="thumb-fallback">🎵</div>' +
+        '<div class="meta"><div class="name">' + escapeHtml(m.name) + '</div>' +
+        '<div class="dur">' + formatTime(m.duration) + (m.kind === 'voiceover' ? ' ・ 録音' : '') + '</div></div>' +
+        '<button class="add-btn">+ 追加</button>';
+      card.querySelector('.add-btn').addEventListener('click', function () {
+        addAudioClip(m.id, { loop: m.kind === 'bgm' });
+      });
+      el.audioBinList.appendChild(card);
+    });
+  }
+
+  function addAudioClip(audioId, opts) {
+    var media = getAudioMedia(audioId);
+    if (!media) return;
+    opts = opts || {};
+    var id = uid();
+    state.audioClips.push({
+      id: id, audioId: audioId,
+      start: opts.start != null ? opts.start : state.globalTime,
+      volume: opts.volume != null ? opts.volume : (media.kind === 'bgm' ? 0.5 : 1),
+      loop: !!opts.loop
+    });
+    renderAudioClipList();
+    pushHistory();
+  }
+
+  function removeAudioClip(id) {
+    state.audioClips = state.audioClips.filter(function (c) { return c.id !== id; });
+    renderAudioClipList();
+    pushHistory();
+  }
+
+  function renderAudioClipList() {
+    el.audioClipList.innerHTML = '';
+    state.audioClips.forEach(function (ac) {
+      var media = getAudioMedia(ac.audioId);
+      if (!media) return;
+      var kindLabel = media.kind === 'bgm' ? 'BGM' : media.kind === 'voiceover' ? 'ボイスオーバー' : '効果音';
+      var card = document.createElement('div');
+      card.className = 'item-card';
+      card.innerHTML =
+        '<div class="row"><strong style="font-size:12px;">[' + kindLabel + '] ' + escapeHtml(media.name) + '</strong>' +
+        '<button class="remove-btn">削除</button></div>' +
+        '<div class="row">' +
+        '<label class="inline">開始(秒)<input type="number" step="0.1" min="0" class="start-input" value="' + ac.start.toFixed(1) + '"></label>' +
+        '<label class="inline">音量<input type="range" min="0" max="2" step="0.05" class="volume-input" value="' + ac.volume + '"></label>' +
+        '<span class="rangeval">' + Math.round(ac.volume * 100) + '%</span>' +
+        '</div>' +
+        (media.kind === 'bgm' ? '<div class="row"><label class="inline-check"><input type="checkbox" class="loop-input"' + (ac.loop ? ' checked' : '') + '> 動画全体にループさせる</label></div>' : '');
+      card.querySelector('.start-input').addEventListener('change', function (e) {
+        ac.start = clamp(parseFloat(e.target.value) || 0, 0, state.totalDuration || 9999);
+        pushHistory();
+      });
+      var volInput = card.querySelector('.volume-input');
+      volInput.addEventListener('input', function (e) {
+        ac.volume = parseFloat(e.target.value);
+        card.querySelector('.rangeval').textContent = Math.round(ac.volume * 100) + '%';
+      });
+      volInput.addEventListener('change', function () { pushHistory(); });
+      var loopInput = card.querySelector('.loop-input');
+      if (loopInput) {
+        loopInput.addEventListener('change', function (e) {
+          ac.loop = e.target.checked;
+          pushHistory();
+        });
+      }
+      card.querySelector('.remove-btn').addEventListener('click', function () { removeAudioClip(ac.id); });
+      el.audioClipList.appendChild(card);
+    });
+  }
+
+  if (el.sfxGrid) {
+    el.sfxGrid.querySelectorAll('button[data-sfx]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var name = btn.dataset.sfx;
+        btn.disabled = true;
+        generateSfx(name).then(function (result) {
+          var url = URL.createObjectURL(result.blob);
+          var media = {
+            id: uid(), name: SFX_PRESETS[name].label, file: result.blob, url: url,
+            kind: 'sfx', duration: result.duration, ffmpegName: null
+          };
+          state.audioBin.push(media);
+          renderAudioBinList();
+          addAudioClip(media.id, { start: state.globalTime, volume: 1, loop: false });
+          try { new Audio(url).play().catch(function () {}); } catch (e) { /* preview optional */ }
+        }).catch(function (err) { alert('効果音の生成に失敗しました: ' + err.message); })
+          .finally(function () { btn.disabled = false; });
+      });
+    });
+  }
+
+  var mediaRecorder = null;
+  var recordedChunks = [];
+  var recordStartTime = 0;
+  if (el.recordVoiceoverBtn) {
+    el.recordVoiceoverBtn.addEventListener('click', function () {
+      if (mediaRecorder && mediaRecorder.state === 'recording') {
+        mediaRecorder.stop();
+        return;
+      }
+      navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
+        recordedChunks = [];
+        recordStartTime = state.globalTime;
+        mediaRecorder = new MediaRecorder(stream);
+        mediaRecorder.ondataavailable = function (e) { if (e.data.size > 0) recordedChunks.push(e.data); };
+        mediaRecorder.onstop = function () {
+          stream.getTracks().forEach(function (t) { t.stop(); });
+          el.recordVoiceoverBtn.textContent = '🎙️ 録音開始';
+          el.recordStatus.textContent = '処理中…';
+          var blob = new Blob(recordedChunks, { type: 'audio/webm' });
+          var url = URL.createObjectURL(blob);
+          var audio = document.createElement('audio');
+          audio.preload = 'metadata';
+          audio.src = url;
+          audio.addEventListener('loadedmetadata', function () {
+            var media = {
+              id: uid(), name: 'ボイスオーバー ' + new Date().toLocaleTimeString(), file: blob, url: url,
+              kind: 'voiceover', duration: audio.duration, ffmpegName: null
+            };
+            state.audioBin.push(media);
+            renderAudioBinList();
+            addAudioClip(media.id, { start: recordStartTime, volume: 1, loop: false });
+            el.recordStatus.textContent = '録音を追加しました(' + formatTime(audio.duration) + ')';
+          });
+        };
+        mediaRecorder.start();
+        el.recordVoiceoverBtn.textContent = '⏹ 録音停止';
+        el.recordStatus.textContent = '録音中…(現在の再生位置から配置されます)';
+      }).catch(function (err) {
+        alert('マイクにアクセスできませんでした: ' + err.message);
+      });
     });
   }
 
@@ -833,9 +1179,12 @@
 
   function ensureFileWritten(ffmpeg, media) {
     if (media.ffmpegName) return Promise.resolve(media.ffmpegName);
-    var ext = (media.kind === 'image') ? 'img_' + media.id + '.png' :
-      (media.file && media.file.name && /\.[a-z0-9]+$/i.test(media.file.name)) ?
-        media.id + media.file.name.slice(media.file.name.lastIndexOf('.')) : media.id + '.mp4';
+    var ext;
+    if (media.kind === 'image') ext = 'img_' + media.id + '.png';
+    else if (media.kind === 'sfx') ext = media.id + '.wav';
+    else if (media.kind === 'voiceover') ext = media.id + '.webm';
+    else if (media.file && media.file.name && /\.[a-z0-9]+$/i.test(media.file.name)) ext = media.id + media.file.name.slice(media.file.name.lastIndexOf('.'));
+    else ext = media.id + '.mp4';
     media.ffmpegName = ext;
     return fetchFileFn(media.file).then(function (data) {
       return ffmpeg.writeFile(media.ffmpegName, data);
@@ -954,6 +1303,29 @@
         return overlayChain.then(function () { return { sequenceParams: sequenceParams, overlayParams: overlayParams }; });
       })
       .then(function (acc) {
+        var audioChain = Promise.resolve();
+        var audioClipParams = [];
+        state.audioClips.forEach(function (ac) {
+          audioChain = audioChain.then(function () {
+            var media = getAudioMedia(ac.audioId);
+            if (!media) return;
+            return ensureFileWritten(ffmpeg, media).then(function (name) {
+              var idx = inputArgs.length;
+              inputArgs.push(['-i', name]);
+              audioClipParams.push({
+                inputIndex: idx, volume: ac.volume, start: ac.start,
+                loop: !!ac.loop, duration: state.totalDuration - ac.start,
+                trimDuration: ac.loop ? null : media.duration
+              });
+            });
+          });
+        });
+        return audioChain.then(function () {
+          acc.audioClipParams = audioClipParams;
+          return acc;
+        });
+      })
+      .then(function (acc) {
         var maxTextWidth = W * 0.86;
         var captionParams = state.captions.map(function (cap, ci) {
           var fontsize = Math.round(cap.fontsizeBase * (H / 1920));
@@ -971,13 +1343,14 @@
           });
         });
         return Promise.all(captionParams).then(function (captionParamsResolved) {
-          return { sequence: acc.sequenceParams, overlays: acc.overlayParams, captions: captionParamsResolved };
+          return { sequence: acc.sequenceParams, overlays: acc.overlayParams, audioClips: acc.audioClipParams, captions: captionParamsResolved };
         });
       })
       .then(function (graphInput) {
         var built = window.FilterGraph.buildFilterGraph({
           width: W, height: H, fps: fps, fontFile: 'font.ttf',
-          sequence: graphInput.sequence, overlays: graphInput.overlays, captions: graphInput.captions
+          sequence: graphInput.sequence, overlays: graphInput.overlays, captions: graphInput.captions,
+          audioClips: graphInput.audioClips
         });
         var flatInputs = inputArgs.reduce(function (a, b) { return a.concat(b); }, []);
         var args = flatInputs.concat([
@@ -1230,9 +1603,13 @@
       overlayBin: state.overlayBin.map(function (m) {
         return { id: m.id, name: m.name, file: m.file, kind: m.kind, duration: m.duration, width: m.width, height: m.height };
       }),
+      audioBin: state.audioBin.map(function (m) {
+        return { id: m.id, name: m.name, file: m.file, kind: m.kind, duration: m.duration };
+      }),
       sequence: JSON.parse(JSON.stringify(state.sequence)),
       overlays: JSON.parse(JSON.stringify(state.overlays)),
-      captions: JSON.parse(JSON.stringify(state.captions))
+      captions: JSON.parse(JSON.stringify(state.captions)),
+      audioClips: JSON.parse(JSON.stringify(state.audioClips))
     };
     dbPut(record).then(function () {
       setProjectStatus('保存しました(' + new Date(record.savedAt).toLocaleTimeString() + ')');
@@ -1275,12 +1652,25 @@
           });
         });
       });
+      var newAudioBin = [];
+      (record.audioBin || []).forEach(function (m) {
+        probeChain = probeChain.then(function () {
+          return probeAudioFile(m.file).then(function (meta) {
+            newAudioBin.push({
+              id: m.id, name: m.name, file: m.file, kind: m.kind, url: meta.url,
+              duration: m.duration, ffmpegName: null
+            });
+          });
+        });
+      });
       return probeChain.then(function () {
         state.clips = newClips;
         state.overlayBin = newOverlayBin;
+        state.audioBin = newAudioBin;
         state.sequence = record.sequence || [];
         state.overlays = record.overlays || [];
         state.captions = record.captions || [];
+        state.audioClips = record.audioClips || [];
         state.selectedSeqId = state.sequence.length ? state.sequence[0].id : null;
         state.selectedOverlayId = null;
         if (el.resolutionSelect && record.resolution) el.resolutionSelect.value = record.resolution;
@@ -1289,10 +1679,12 @@
         recomputeOffsets();
         renderClipList();
         renderOverlayBinList();
+        renderAudioBinList();
         renderSequence();
         renderColorEditor();
         renderOverlayList();
         renderCaptionList();
+        renderAudioClipList();
         seekGlobal(0);
         history.stack = [];
         history.index = -1;
