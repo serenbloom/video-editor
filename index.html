@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reel Cutter - リール動画編集ツール</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="app-header">
+  <div class="brand">Reel Cutter</div>
+  <div class="status-row">
+    <span id="ffmpegStatus" class="status-pill">FFmpeg: 未読込</span>
+    <span id="modelStatus" class="status-pill">音声認識: 未読込</span>
+  </div>
+</header>
+
+<main class="layout">
+  <aside class="panel panel-left">
+    <section class="box">
+      <h2>① 素材(動画を読み込む)</h2>
+      <label class="file-btn">
+        動画ファイルを追加
+        <input type="file" id="clipInput" accept="video/*" multiple hidden>
+      </label>
+      <div id="clipList" class="media-list"></div>
+    </section>
+
+    <section class="box">
+      <h2>オーバーレイ素材</h2>
+      <label class="file-btn secondary">
+        画像/動画を追加
+        <input type="file" id="overlayFileInput" accept="image/*,video/*" multiple hidden>
+      </label>
+      <div id="overlayBinList" class="media-list"></div>
+    </section>
+  </aside>
+
+  <section class="center">
+    <div class="preview-wrap">
+      <div id="previewStage" class="preview-stage">
+        <video id="previewVideo" playsinline muted></video>
+        <div id="overlayLayer" class="overlay-layer"></div>
+        <div id="captionLayer" class="caption-layer"></div>
+      </div>
+    </div>
+
+    <div class="transport">
+      <button id="playBtn" class="icon-btn" title="再生/一時停止">▶</button>
+      <input type="range" id="seekBar" min="0" max="0" step="0.01" value="0">
+      <span id="timeLabel" class="time-label">00:00 / 00:00</span>
+    </div>
+
+    <div class="box timeline-box">
+      <h2>② タイムライン(カット&結合)</h2>
+      <p class="hint">左の素材から「+ タイムラインに追加」でクリップを並べます。IN/OUT数値で不要な部分をカットし、⇅ボタンで並び替えできます。</p>
+      <div id="sequenceList" class="sequence-list"></div>
+      <div class="empty-hint" id="sequenceEmptyHint">まだクリップがありません。左の「動画ファイルを追加」から始めてください。</div>
+    </div>
+  </section>
+
+  <aside class="panel panel-right">
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="telop">③ テロップ</button>
+      <button class="tab-btn" data-tab="overlay">④ オーバーレイ</button>
+      <button class="tab-btn" data-tab="color">⑤ 色調補正</button>
+      <button class="tab-btn" data-tab="export">⑥ 書き出し</button>
+    </div>
+
+    <div class="tab-panel" id="tab-telop">
+      <div class="field-row">
+        <button id="transcribeBtn" class="primary-btn">選択中クリップから自動文字起こし</button>
+      </div>
+      <div class="field-row small-hint">未選択の場合はタイムライン全体を対象にします。数十秒〜数分、モデルのダウンロードに時間がかかることがあります(初回のみ)。</div>
+      <div id="transcribeProgress" class="progress-text"></div>
+
+      <button id="addCaptionBtn" class="secondary-btn">＋ テロップを手動追加</button>
+      <div id="captionList" class="item-list"></div>
+    </div>
+
+    <div class="tab-panel hidden" id="tab-overlay">
+      <div class="field-row small-hint">左の「オーバーレイ素材」から画像/動画を追加し、下のリストで表示区間・位置・不透明度を設定します。位置とサイズはプレビュー上のボックスをドラッグしても変更できます。</div>
+      <div id="overlayList" class="item-list"></div>
+    </div>
+
+    <div class="tab-panel hidden" id="tab-color">
+      <div class="field-row small-hint">タイムラインでクリップを選択すると、そのクリップだけの色調を調整できます。</div>
+      <div id="colorEditor" class="color-editor">
+        <p class="empty-hint">タイムラインのクリップを選択してください。</p>
+      </div>
+    </div>
+
+    <div class="tab-panel hidden" id="tab-export">
+      <div class="field-row">
+        <label>出力サイズ
+          <select id="resolutionSelect">
+            <option value="1080x1920" selected>縦型 9:16 (リール/ストーリーズ) 1080x1920</option>
+            <option value="1080x1080">正方形 1:1 1080x1080</option>
+            <option value="1920x1080">横型 16:9 1920x1080</option>
+          </select>
+        </label>
+      </div>
+      <div class="field-row">
+        <label>フレームレート
+          <select id="fpsSelect">
+            <option value="24">24fps</option>
+            <option value="30" selected>30fps</option>
+          </select>
+        </label>
+      </div>
+      <button id="exportBtn" class="primary-btn">書き出す</button>
+      <div id="exportProgress" class="progress-text"></div>
+      <div id="exportResult"></div>
+    </div>
+  </aside>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/umd/index.js"></script>
+<script src="filter-graph.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
