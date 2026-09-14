@@ -133,6 +133,9 @@
     sequenceEmptyHint: $('sequenceEmptyHint'),
     transitionTypeSelect: $('transitionTypeSelect'),
     transitionDurationInput: $('transitionDurationInput'),
+    silenceCutBtn: $('silenceCutBtn'),
+    silenceDurationInput: $('silenceDurationInput'),
+    silenceCutStatus: $('silenceCutStatus'),
     tabBtns: document.querySelectorAll('.tab-btn'),
     tabPanels: document.querySelectorAll('.tab-panel'),
     transcribeBtn: $('transcribeBtn'),
@@ -1725,6 +1728,102 @@
       });
     });
   }
+
+  function detectSilenceKeepRanges(samples, sampleRate, minSilenceDur, ampThreshold) {
+    var windowSize = Math.max(1, Math.round(sampleRate * 0.05));
+    var numWindows = Math.ceil(samples.length / windowSize);
+    var isSilent = new Array(numWindows);
+    for (var w = 0; w < numWindows; w++) {
+      var start = w * windowSize, end = Math.min(samples.length, start + windowSize);
+      var sumSq = 0;
+      for (var i = start; i < end; i++) sumSq += samples[i] * samples[i];
+      isSilent[w] = Math.sqrt(sumSq / Math.max(1, end - start)) < ampThreshold;
+    }
+    var pad = Math.max(0, Math.round(0.1 * sampleRate / windowSize));
+    var silentRanges = [];
+    var w2 = 0;
+    while (w2 < numWindows) {
+      if (!isSilent[w2]) { w2++; continue; }
+      var runStart = w2;
+      while (w2 < numWindows && isSilent[w2]) w2++;
+      var runEnd = w2;
+      var durSec = (runEnd - runStart) * windowSize / sampleRate;
+      if (durSec >= minSilenceDur) {
+        var cutStart = (runStart + pad) * windowSize / sampleRate;
+        var cutEnd = (runEnd - pad) * windowSize / sampleRate;
+        if (cutEnd > cutStart) silentRanges.push([cutStart, cutEnd]);
+      }
+    }
+    var totalDur = samples.length / sampleRate;
+    var keep = [];
+    var cursor = 0;
+    silentRanges.forEach(function (r) {
+      if (r[0] > cursor) keep.push([cursor, r[0]]);
+      cursor = r[1];
+    });
+    if (cursor < totalDur) keep.push([cursor, totalDur]);
+    return keep;
+  }
+
+  function autoCutSilence() {
+    if (!state.sequence.length) { alert('タイムラインにクリップを追加してください。'); return; }
+    var minDur = clamp(parseFloat(el.silenceDurationInput.value) || 0.5, 0.1, 5);
+    var ampThreshold = 0.02;
+    var targetIds = state.selectedSeqId ? [state.selectedSeqId] : state.sequence.map(function (it) { return it.id; });
+    var originalSequence = state.sequence.slice();
+
+    el.silenceCutBtn.disabled = true;
+    el.silenceCutStatus.textContent = '解析中…';
+
+    var chain = Promise.resolve();
+    var replacements = {};
+    originalSequence.forEach(function (item, idx) {
+      if (targetIds.indexOf(item.id) === -1) return;
+      chain = chain.then(function () {
+        el.silenceCutStatus.textContent = '解析中… (' + (idx + 1) + '/' + originalSequence.length + ')';
+        var clip = getClip(item.clipId);
+        return extractAudioFloat32(clip, item.in, item.out).then(function (samples) {
+          var keep = detectSilenceKeepRanges(samples, 16000, minDur, ampThreshold);
+          var segs = keep
+            .map(function (r) { return { in: item.in + r[0], out: item.in + r[1] }; })
+            .filter(function (r) { return r.out - r.in > 0.08; });
+          replacements[item.id] = segs.length ? segs : [{ in: item.in, out: item.out }];
+        }).catch(function (err) {
+          console.error(err);
+          replacements[item.id] = [{ in: item.in, out: item.out }];
+        });
+      });
+    });
+
+    chain.then(function () {
+      var newSeq = [];
+      var beforeCount = originalSequence.length;
+      originalSequence.forEach(function (item) {
+        var segs = replacements[item.id];
+        if (!segs) { newSeq.push(item); return; }
+        segs.forEach(function (s) {
+          newSeq.push({
+            id: uid(), clipId: item.clipId, in: s.in, out: s.out,
+            color: JSON.parse(JSON.stringify(item.color)),
+            offset: 0, dur: 0, transIn: 0
+          });
+        });
+      });
+      state.sequence = newSeq;
+      state.selectedSeqId = newSeq.length ? newSeq[0].id : null;
+      recomputeOffsets();
+      renderSequence();
+      renderColorEditor();
+      seekGlobal(0);
+      pushHistory();
+      el.silenceCutStatus.textContent = '完了しました(' + beforeCount + '個 → ' + newSeq.length + '個の区間に分割)';
+    }).catch(function (err) {
+      el.silenceCutStatus.textContent = 'エラー: ' + (err && err.message ? err.message : err);
+    }).finally(function () {
+      el.silenceCutBtn.disabled = false;
+    });
+  }
+  if (el.silenceCutBtn) el.silenceCutBtn.addEventListener('click', autoCutSilence);
 
   function transcribeSelected() {
     if (!state.sequence.length) { alert('タイムラインにクリップを追加してください。'); return; }

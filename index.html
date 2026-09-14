@@ -83,6 +83,14 @@
           <input type="number" id="transitionDurationInput" step="0.1" min="0.1" max="2" value="0.4">
         </label>
       </div>
+      <div class="field-row transition-row">
+        <button id="silenceCutBtn" class="secondary-btn small">無音を自動カット</button>
+        <label>対象とする無音の長さ(秒)
+          <input type="number" id="silenceDurationInput" step="0.1" min="0.1" max="5" value="0.5">
+        </label>
+      </div>
+      <div class="field-row small-hint">タイムラインでクリップを選択していればそのクリップだけ、未選択ならタイムライン全体を解析して無音部分を自動でジャンプカットします。</div>
+      <div id="silenceCutStatus" class="progress-text"></div>
       <div id="sequenceList" class="sequence-list"></div>
       <div class="empty-hint" id="sequenceEmptyHint">まだクリップがありません。左の「動画ファイルを追加」から始めてください。</div>
     </div>
