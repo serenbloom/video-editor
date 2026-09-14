@@ -110,7 +110,8 @@
     </div>
 
     <div class="tab-panel hidden" id="tab-overlay">
-      <div class="field-row small-hint">左の「オーバーレイ素材」から画像/動画を追加し、下のリストで表示区間・位置・不透明度を設定します。位置とサイズはプレビュー上のボックスをドラッグしても変更できます。</div>
+      <div class="field-row small-hint">左の「オーバーレイ素材」から画像/動画を追加し、下のリストで表示区間・位置・不透明度を設定します。位置とサイズはプレビュー上のボックスをドラッグしても変更できます。複数追加すると重ねて表示でき、▲▼で前面/背面を入れ替えられます。</div>
+      <div id="overlayTrackViz" class="track-viz"></div>
       <div id="overlayList" class="item-list"></div>
     </div>
 
@@ -141,6 +142,7 @@
       <div id="recordStatus" class="progress-text"></div>
 
       <h3 class="subhead">配置した音声</h3>
+      <div id="audioTrackViz" class="track-viz"></div>
       <div id="audioClipList" class="item-list"></div>
     </div>
 

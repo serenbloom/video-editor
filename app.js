@@ -133,6 +133,8 @@
     addCaptionBtn: $('addCaptionBtn'),
     captionList: $('captionList'),
     overlayList: $('overlayList'),
+    overlayTrackViz: $('overlayTrackViz'),
+    audioTrackViz: $('audioTrackViz'),
     colorEditor: $('colorEditor'),
     resolutionSelect: $('resolutionSelect'),
     fpsSelect: $('fpsSelect'),
@@ -601,6 +603,15 @@
       card.querySelector('.remove-btn').addEventListener('click', function () { removeAudioClip(ac.id); });
       el.audioClipList.appendChild(card);
     });
+    renderTrackViz(el.audioTrackViz, state.audioClips, {
+      getStart: function (ac) { return ac.start; },
+      getEnd: function (ac) {
+        var media = getAudioMedia(ac.audioId);
+        var dur = media ? media.duration : 1;
+        return ac.loop ? state.totalDuration : ac.start + dur;
+      },
+      getLabel: function (ac) { var m = getAudioMedia(ac.audioId); return m ? m.name : ''; }
+    });
   }
 
   if (el.sfxGrid) {
@@ -816,9 +827,19 @@
     });
   }
 
+  function updateTrackPlayheads() {
+    var total = state.totalDuration || 1;
+    [el.overlayTrackViz, el.audioTrackViz].forEach(function (container) {
+      if (!container) return;
+      var ph = container.querySelector('.track-playhead');
+      if (ph) ph.style.left = (clamp(state.globalTime / total, 0, 1) * 100) + '%';
+    });
+  }
+
   function updateTransportUI() {
     el.seekBar.value = state.globalTime.toFixed(2);
     el.timeLabel.textContent = formatTime(state.globalTime) + ' / ' + formatTime(state.totalDuration);
+    updateTrackPlayheads();
   }
 
   var rafId = null;
@@ -910,6 +931,42 @@
     pushHistory();
   }
 
+  function moveOverlayLayer(id, dir) {
+    var idx = state.overlays.findIndex(function (o) { return o.id === id; });
+    var newIdx = idx + dir;
+    if (idx === -1 || newIdx < 0 || newIdx >= state.overlays.length) return;
+    var tmp = state.overlays[idx];
+    state.overlays[idx] = state.overlays[newIdx];
+    state.overlays[newIdx] = tmp;
+    renderOverlayList();
+    renderOverlayVisibility(state.globalTime);
+    pushHistory();
+  }
+
+  function renderTrackViz(container, items, opts) {
+    if (!container) return;
+    container.innerHTML = '';
+    var total = state.totalDuration || 1;
+    items.forEach(function (item) {
+      var row = document.createElement('div');
+      row.className = 'track-row';
+      var bar = document.createElement('div');
+      bar.className = 'track-bar' + (opts.isSelected && opts.isSelected(item) ? ' selected' : '');
+      var start = opts.getStart(item), end = opts.getEnd(item);
+      bar.style.left = (clamp(start / total, 0, 1) * 100) + '%';
+      bar.style.width = Math.max(1.5, clamp((end - start) / total, 0, 1) * 100) + '%';
+      bar.textContent = opts.getLabel(item);
+      bar.title = opts.getLabel(item) + ' (' + formatTime(start) + ' - ' + formatTime(end) + ')';
+      bar.addEventListener('click', function () { if (opts.onClick) opts.onClick(item); });
+      row.appendChild(bar);
+      container.appendChild(row);
+    });
+    var playhead = document.createElement('div');
+    playhead.className = 'track-playhead';
+    playhead.style.left = (clamp(state.globalTime / total, 0, 1) * 100) + '%';
+    container.appendChild(playhead);
+  }
+
   function renderOverlayList() {
     el.overlayList.innerHTML = '';
     state.overlays.forEach(function (ov) {
@@ -919,6 +976,8 @@
       card.className = 'item-card' + (ov.id === state.selectedOverlayId ? ' selected' : '');
       card.innerHTML =
         '<div class="row"><strong style="font-size:12px;">' + escapeHtml(media.name) + '</strong>' +
+        '<button class="layer-up-btn icon-btn small" title="前面へ">▲</button>' +
+        '<button class="layer-down-btn icon-btn small" title="背面へ">▼</button>' +
         '<button class="remove-btn">削除</button></div>' +
         '<div class="row">' +
         '<label class="inline">開始(秒)<input type="number" step="0.1" min="0" class="start-input" value="' + ov.start.toFixed(1) + '"></label>' +
@@ -933,6 +992,8 @@
         renderOverlayVisibility(state.globalTime);
       });
       card.querySelector('.remove-btn').addEventListener('click', function () { removeOverlay(ov.id); });
+      card.querySelector('.layer-up-btn').addEventListener('click', function (e) { e.stopPropagation(); moveOverlayLayer(ov.id, 1); });
+      card.querySelector('.layer-down-btn').addEventListener('click', function (e) { e.stopPropagation(); moveOverlayLayer(ov.id, -1); });
       card.querySelector('.start-input').addEventListener('change', function (e) {
         ov.start = clamp(parseFloat(e.target.value) || 0, 0, ov.end - 0.1);
         renderOverlayVisibility(state.globalTime);
@@ -951,6 +1012,13 @@
       });
       opacityInput.addEventListener('change', function () { pushHistory(); });
       el.overlayList.appendChild(card);
+    });
+    renderTrackViz(el.overlayTrackViz, state.overlays, {
+      getStart: function (o) { return o.start; },
+      getEnd: function (o) { return o.end; },
+      getLabel: function (o) { var m = getOverlayMedia(o.mediaId); return m ? m.name : ''; },
+      isSelected: function (o) { return o.id === state.selectedOverlayId; },
+      onClick: function (o) { state.selectedOverlayId = o.id; renderOverlayList(); renderOverlayVisibility(state.globalTime); }
     });
   }
 
